@@ -1,0 +1,60 @@
+CUMA (CUda Memory Analysis) is a simpel tool I created to detect memory leaks in GPUs.
+The idea is to intercept the cudaMalloc and cudaFree and records the memory allocation
+information, such as size, pointer, the calling stack and dumps out the un-free-ed
+GPU memory in the exit. So far I have only implemented the cudaMalloc/cudaFree pair,
+but other memory allocation/free calls can be implemented as well should that be needed.
+This library is only needed if the application is getting complicated enough that
+you cannot spot the GPU memory leak by reading the code. The usage of the library is 
+non-instrusive, by using LD_PRELOAD
+
+Sampe code (test.cu) provided:
+------------------------------------------------------------------------------
+int testfunc()
+{
+    float* A;
+    float* B;
+    float* C;
+    cudaMalloc((void**)&A, sizeof(float)*N);
+    cudaMalloc((void**)&B, sizeof(float)*N);
+    cudaMalloc((void**)&C, sizeof(float)*N);
+
+    //cudaFree(A);
+    //cudaFree(B);
+    cudaFree(C);
+
+    return 0;
+
+}
+
+int main()
+{
+        testfunc();
+
+        return 0;
+}
+--------------------------------------------------------------------------------
+% LD_PRELOAD=./libcma.so ./test
+Summary of GPU memory usage
+Memory usage: 3 alloc, 1 free, peak_memory_usage=192, current memory in usage: 1
+There are 2 entries in the hash table
+entry 0: ptr=0x200100000, size=64. The calling backtrace is
+        ./libcma.so(cudaMalloc+0x84) [0x2b8ed854c1fc]
+        ./test(__gxx_personality_v0+0x13e) [0x40073e]
+        ./test(__gxx_personality_v0+0x173) [0x400773]
+        /lib64/libc.so.6(__libc_start_main+0xf4) [0x2b8ed940d994]
+        ./test(__gxx_personality_v0+0x39) [0x400639]
+entry 1: ptr=0x200100200, size=64. The calling backtrace is
+        ./libcma.so(cudaMalloc+0x84) [0x2b8ed854c1fc]
+        ./test(__gxx_personality_v0+0x14c) [0x40074c]
+        ./test(__gxx_personality_v0+0x173) [0x400773]
+        /lib64/libc.so.6(__libc_start_main+0xf4) [0x2b8ed940d994]
+        ./test(__gxx_personality_v0+0x39) [0x400639]
+ 
+-----------------------------------------------------------------------------------
+I have not figured out how to print out the source code line number in the stack
+yet but so far these back trace stacks have been enough for me.
+
+
+Questions: 
+Guochun Shi (gshi@ncsa.illinois.edu)
+
