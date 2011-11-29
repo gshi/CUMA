@@ -34,6 +34,8 @@
    along with this program; if not, write to the Free Software
    Foundation, 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
+#include "demangle.h"
+
 #define fatal(a, b) exit(1)
 #define bfd_fatal(a) exit(1)
 #define bfd_nonfatal(a) exit(1)
@@ -220,8 +222,13 @@ static char** translate_addresses_buf(bfd * abfd, bfd_vma *addr, int naddr)
                   const char *name;
 
                   name = functionname;
-                  if (name == NULL || *name == '\0')
+                  if (name == NULL || *name == '\0'){
                         name = "??";
+		  }else{
+		    demangle(name);
+		    //char* cname = name;
+		    //printf ("name is %s, cname is %s\n", name, cname);
+		  }
                   if (filename != NULL) {
                         char *h;
 

@@ -35,25 +35,26 @@ int main()
 --------------------------------------------------------------------------------
 % LD_PRELOAD=./libcma.so ./test
 Summary of GPU memory usage
-Memory usage: 3 alloc, 1 free, peak_memory_usage=192, current memory in usage: 1
+Memory usage: 3 alloc, 1 free, peak_memory_usage=192, current memory in usage: 128
 There are 2 entries in the hash table
 entry 0: ptr=0x200100000, size=64. The calling backtrace is
-        ./libcma.so(cudaMalloc+0x84) [0x2b8ed854c1fc]
-        ./test(__gxx_personality_v0+0x13e) [0x40073e]
-        ./test(__gxx_personality_v0+0x173) [0x400773]
-        /lib64/libc.so.6(__libc_start_main+0xf4) [0x2b8ed940d994]
-        ./test(__gxx_personality_v0+0x39) [0x400639]
+        cuda_mem_analysis.c:207 cudaMalloc()
+        test.cu:13      testfunc()
+        test.cu:28      main()
+        ??:0    __libc_start_main()
+        ??:0    _start()
 entry 1: ptr=0x200100200, size=64. The calling backtrace is
-        ./libcma.so(cudaMalloc+0x84) [0x2b8ed854c1fc]
-        ./test(__gxx_personality_v0+0x14c) [0x40074c]
-        ./test(__gxx_personality_v0+0x173) [0x400773]
-        /lib64/libc.so.6(__libc_start_main+0xf4) [0x2b8ed940d994]
-        ./test(__gxx_personality_v0+0x39) [0x400639]
- 
+        cuda_mem_analysis.c:207 cudaMalloc()
+        test.cu:14      testfunc()
+        test.cu:28      main()
+        ??:0    __libc_start_main()
+        ??:0    _start()
 -----------------------------------------------------------------------------------
-I have not figured out how to print out the source code line number in the stack
-yet but so far these back trace stacks have been enough for me.
 
+Credit:
+The backtrace-symbols.c are from Jeff Muizelaar
+(http://opensource.apple.com/source/X11libs/X11libs-40.2/cairo/cairo-1.8.6/util/backtrace-symbols.c)
+I modified it slightly to demangle the C++ symbol.
 
 Questions: 
 Guochun Shi (gshi at ncsa.illinois.edu)

@@ -4,23 +4,23 @@ LIB := -L${CUDA_INSTALL_PATH}/lib64  -lcudart `pkg-config --libs glib-2.0`
 CUDACC = nvcc
 CC=gcc
 CPP=g++
-OBJS=cuda_mem_analysis.o backtrace-symbols.o
+OBJS=cuda_mem_analysis.o demangle.o
 #DEBUG = -DCMA_DEBUG
 
 MEMTYPE=-DGPU_MEM_USAGE
 #MEMTYPE=-DCPU_MEM_USAGE
 CFLAGS= -g ${MEMTYPE} ${INCLUDES} -fPIC ${DEBUG}
-
+LD=gcc
 
 
 
 default: libcma.so  test
-libcma.so: cuda_mem_analysis.o
-	${CC}  -shared -o $@ -ldl $< ${LIB} 
-libbacktrace-symbols.so: backtrace-symbols.o
-	${CC} -shared -o $@  $< -lbfd
+all: libcma.so  test
+libcma.so: ${OBJS}
+	${CC}  -shared -o $@ -ldl ${OBJS} ${LIB} -lbfd -liberty
 test: test.cu
-	${CUDACC} -g  ${INCLUDES} -o $@ $< ${LIB}
+	${CUDACC} -g -c  ${INCLUDES} $<
+	${LD}  -o $@ test.o   -rdynamic ${LIB}
 .c.o:
 	${CC} ${CFLAGS} -c -o $@ $<
 .cpp.o:

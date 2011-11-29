@@ -1,4 +1,7 @@
+#define __USE_GNU
 #define _GNU_SOURCE
+
+#include "backtrace-symbols.c"
 
 #include <cuda_runtime.h>
 #include <stdlib.h>
@@ -8,6 +11,7 @@
 #include <string.h>
 #include <execinfo.h>
 #include <dlfcn.h>
+#include "demangle.h"
 
 #ifdef CMA_DEBUG
 #define FUNC_ENTER_LOG do {						\
@@ -141,6 +145,7 @@ print_one_entry(gpointer key, gpointer value, gpointer user_data)
   PRINTF("entry %d: ptr=%p, size=%d. The calling backtrace is\n", entry_idx, mr->ptr, mr->size, mr->backtrace);
   for(i=0;i < mr->num_stacks; i++){
     PRINTF("        %s\n", mr->backtrace[i]);
+    //PRINTF("        %s\n", demangle(mr->backtrace[i]));
   }
   entry_idx ++;
   return;  
