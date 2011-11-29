@@ -51,6 +51,9 @@ entry 1: ptr=0x200100200, size=64. The calling backtrace is
         ??:0    _start()
 -----------------------------------------------------------------------------------
 
+Software requirement:
+	CUMA needs glib2-devel to compile.
+
 Credit:
 The backtrace-symbols.c is from Jeff Muizelaar
 (http://opensource.apple.com/source/X11libs/X11libs-40.2/cairo/cairo-1.8.6/util/backtrace-symbols.c)
