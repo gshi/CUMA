@@ -14,13 +14,16 @@ LD=gcc
 
 
 
-default: libcma.so  test
-all: libcma.so  test
+default: libcma.so  cuda_test cu_test
+all: default
 libcma.so: ${OBJS}
 	${CC}  -shared -o $@ -ldl ${OBJS} ${LIB} -lbfd -liberty
-test: test.cu
+cuda_test: cuda_test.cu
 	${CUDACC} -g -c  ${INCLUDES} $<
-	${LD}  -o $@ test.o  ${LIB}
+	${LD}  -o $@ cuda_test.o  ${LIB}
+cu_test: cu_test.cu
+	${CUDACC} -g -c  ${INCLUDES} $<
+	${LD}  -o $@ cu_test.o  ${LIB} -lcuda
 .c.o:
 	${CC} ${CFLAGS} -c -o $@ $<
 .cpp.o:

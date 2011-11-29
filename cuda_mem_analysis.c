@@ -4,6 +4,8 @@
 #include "backtrace-symbols.c"
 
 #include <cuda_runtime.h>
+#include <cuda.h>
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <dlfcn.h>
@@ -43,9 +45,14 @@ typedef struct mem_region_s{
   void* ptr;
   int num_stacks;
   char backtrace[MAX_NUM_STACKS][MAX_NAME_LEN]; //the calling function's name
+  int mem_type;
 }mem_region_t;
 
-
+enum mem_type{
+  CUDA_MEM_TYPE,
+  CU_MEM_TYPE,
+  INVALID_MEM_TYPE,
+};
 
 #ifdef GPU_MEM_USAGE
 char memtype[] = "GPU";
@@ -59,12 +66,18 @@ extern const char *__progname_full;
 
 static cudaError_t (*real_cudaMalloc)(void ** devPtr, size_t size);
 static cudaError_t (*real_cudaFree)(void* devPtr);
+static CUresult (*real_cuMemAlloc)(CUdeviceptr* dptr, size_t bytesize);
+static CUresult (*real_cuMemFree)(CUdeviceptr dptr);
+static CUresult (*real_cuInit) (unsigned int Flags);
+
 static void* (*real_malloc)(size_t size);
 static void (*real_free)(void* ptr);
-static void* handle = NULL;
+static void* cuda_handle = NULL;
+static void* cu_handle = NULL;
 static GHashTable* hash_table = NULL;
 
 static int entry_idx =0;
+static int print_number = 10;
 struct mem_stat{
   size_t tot_mem_alloc;
   size_t peak_mem_alloc;
@@ -80,19 +93,39 @@ int cma_init()
     goto out;
   }
   cma_initialized =1;
-  
-  handle  = dlopen("libcudart.so", RTLD_NOW);
-  if(handle == NULL){
+
+  cuda_handle  = dlopen("libcudart.so", RTLD_NOW);
+  if(cuda_handle == NULL){
     printf("ERROR: opening libcudart.so failed\n");
     exit(1);
   }
   
-  real_cudaMalloc = dlsym(handle, "cudaMalloc");
-  real_cudaFree = dlsym(handle, "cudaFree");
+  real_cudaMalloc = dlsym(cuda_handle, "cudaMalloc");
+  real_cudaFree = dlsym(cuda_handle, "cudaFree");
   if(real_cudaMalloc == NULL || real_cudaFree == NULL){
     printf("ERROR: symbol cudaMalloc/cudaFree not found\n");
     exit(1);
   }
+#if 0    
+  cu_handle  = dlopen("libcuda.so", RTLD_NOW);
+  if(cu_handle == NULL){
+    printf("ERROR: opening libcuda.so failed\n");
+    exit(1);
+  }
+#endif  
+  real_cuMemAlloc = dlsym(RTLD_NEXT, "cuMemAlloc");
+  real_cuMemFree = dlsym(RTLD_NEXT, "cuMemFree");
+  if(real_cuMemAlloc == NULL || real_cuMemFree == NULL){
+    printf("ERROR: symbol cuMemAlloc/cuMemFree not found\n");
+    exit(1);
+  }  
+
+  real_cuInit = dlsym(RTLD_NEXT, "cuInit");
+  if(real_cuInit == NULL){
+    printf("ERROR: symbol cuInit not found\n");
+    exit(1);
+  } 
+  //(*real_cuInit)(0);
   
   hash_table = g_hash_table_new(g_direct_hash, g_direct_equal);
   
@@ -142,12 +175,16 @@ print_one_entry(gpointer key, gpointer value, gpointer user_data)
 {
   int i;
   mem_region_t* mr  = (mem_region_t*) value;
-  PRINTF("entry %d: ptr=%p, size=%d. The calling backtrace is\n", entry_idx, mr->ptr, mr->size, mr->backtrace);
-  for(i=0;i < mr->num_stacks; i++){
-    PRINTF("        %s\n", mr->backtrace[i]);
-    //PRINTF("        %s\n", demangle(mr->backtrace[i]));
+  //we assume this is single thread application
+  //otherwise the global var entry_idx is not thread_safe
+  if(entry_idx < print_number){
+    PRINTF("entry %d: ptr=%p, size=%d. The calling backtrace is\n", entry_idx, mr->ptr, mr->size, mr->backtrace);
+    for(i=0;i < mr->num_stacks; i++){
+      PRINTF("        %s\n", mr->backtrace[i]);
+    }
   }
   entry_idx ++;
+  
   return;  
 }
 
@@ -165,9 +202,12 @@ void
 cma_print_detail()
 {
   cma_print_stat();
-  PRINTF("There are %d entries in the hash table\n", g_hash_table_size(hash_table));
+  if(hash_table == NULL){
+    return;
+  }
+  PRINTF("There are %d entries in the hash table (only the first %d entries in the hash table are printed)\n", 
+	 g_hash_table_size(hash_table), print_number);
   
-  entry_idx = 0;
   g_hash_table_foreach(hash_table, print_one_entry, NULL);
   
   return;
@@ -175,7 +215,8 @@ cma_print_detail()
 
 int cma_cleanup()
 {
-  dlclose(handle);  handle = NULL;
+  dlclose(cuda_handle);  cuda_handle = NULL;
+  //dlclose(cu_handle);  cu_handle = NULL;
   g_hash_table_destroy(hash_table); hash_table = NULL;
 
 }
@@ -190,17 +231,11 @@ cma_destructor(void)
   cma_print_detail();
 }
 
-/*******************************************************************************************
- ************************* Intercepted Functions ********************************************
-********************************************************************************************/
-#ifdef GPU_MEM_USAGE
-cudaError_t cudaMalloc(void ** devPtr,  size_t size)	
+
+static int
+cma_insert_mem_region(void* ptr, int size, int mem_type)
 {
   FUNC_ENTER_LOG;
-  cma_init();
-  
-  cudaError_t rc = (*real_cudaMalloc)(devPtr, size);
-
   //get the stack back trace
   int buflen = MAX_NUM_STACKS ;
   void* buffer[buflen];
@@ -209,8 +244,7 @@ cudaError_t cudaMalloc(void ** devPtr,  size_t size)
     printf("Error: backtrace call failed(n=%d)\n",n);
     exit(1);
   }
-  
-  
+    
   char** s = backtrace_symbols(buffer, n);
   if(s == NULL){
     printf("Error: bactrace_symbols call failed\n");
@@ -224,9 +258,10 @@ cudaError_t cudaMalloc(void ** devPtr,  size_t size)
     exit(1);
   }
   
-  mr->ptr = *devPtr;
+  mr->ptr = ptr;
   mr->size= size;    
   mr->num_stacks= n;
+  mr->mem_type = CUDA_MEM_TYPE;
   int i;
   for(i=0;i < n; i++){
     strncpy(mr->backtrace[i], s[i], MAX_NAME_LEN);
@@ -241,6 +276,51 @@ cudaError_t cudaMalloc(void ** devPtr,  size_t size)
   }
 
   free(s);
+
+  FUNC_EXIT_LOG;
+  return 0;
+}
+
+static int
+cma_remove_mem_region(void* ptr, int mem_type)
+{
+  FUNC_ENTER_LOG;
+  mem_region_t* mr = (mem_region_t*)g_hash_table_lookup(hash_table, ptr);
+  if(mr == NULL){
+    printf("ERROR: memory region not found in hash table\n");
+    exit(1);
+  }
+  
+  if(mr->mem_type != mem_type){
+    printf("ERROR: something very wrong, the mem_type does not match\n");
+    exit(1);
+  }
+  mem_stat.num_free ++;
+  mem_stat.tot_mem_alloc -= mr->size;
+  
+  g_hash_table_remove(hash_table, ptr);
+  free(mr);
+
+  FUNC_EXIT_LOG;
+  return 0;
+}
+
+/*******************************************************************************************
+ ************************* Intercepted Functions ********************************************
+********************************************************************************************/
+#ifdef GPU_MEM_USAGE
+
+//CUDA runtime API
+cudaError_t cudaMalloc(void ** devPtr,  size_t size)	
+{
+  FUNC_ENTER_LOG;
+  cma_init();
+  
+  cudaError_t rc = (*real_cudaMalloc)(devPtr, size);
+
+  if(*devPtr != NULL){
+    cma_insert_mem_region(*devPtr, size, CUDA_MEM_TYPE);
+  }
   
   FUNC_EXIT_LOG;
   return rc;
@@ -252,17 +332,7 @@ cudaError_t cudaFree(void* devPtr)
   FUNC_ENTER_LOG;
   cma_init();
  
-  mem_region_t* mr = (mem_region_t*)g_hash_table_lookup(hash_table, devPtr);
-  if(mr == NULL){
-    printf("ERROR: memory region not found in hash table\n");
-    exit(1);
-  }
-  
-  mem_stat.num_free ++;
-  mem_stat.tot_mem_alloc -= mr->size;
-
-  g_hash_table_remove(hash_table, devPtr);
-  free(mr);
+  cma_remove_mem_region(devPtr, CUDA_MEM_TYPE);
   
   cudaError_t rc = (*real_cudaFree)(devPtr);
   
@@ -271,6 +341,42 @@ cudaError_t cudaFree(void* devPtr)
 
   return rc;
 }
+
+
+
+//CUDA Driver API
+CUresult cuMemAlloc (CUdeviceptr* dptr, size_t bytesize)
+{
+  FUNC_ENTER_LOG;
+  cma_init();
+
+  CUresult rc = (*real_cuMemAlloc)(dptr, bytesize);
+  if(*dptr != NULL){
+    cma_insert_mem_region((void*)(*dptr), bytesize, CU_MEM_TYPE);
+  }else{
+    printf("ERROR: something is wrong with cu Malloc\n");
+    //exit(1);
+  }
+
+  FUNC_EXIT_LOG;
+  return rc;
+}
+
+
+
+CUresult cuMemFree (CUdeviceptr dptr)
+{
+  FUNC_ENTER_LOG;
+  cma_init();  
+  
+  cma_remove_mem_region((void*)dptr, CU_MEM_TYPE);
+  CUresult rc = (*real_cuMemFree)(dptr);
+  
+  FUNC_EXIT_LOG;
+  return rc;
+}
+
+
 #endif
 
 /******************************************************************
