@@ -20,7 +20,7 @@ libcma.so: ${OBJS}
 	${CC}  -shared -o $@ -ldl ${OBJS} ${LIB} -lbfd -liberty
 test: test.cu
 	${CUDACC} -g -c  ${INCLUDES} $<
-	${LD}  -o $@ test.o   -rdynamic ${LIB}
+	${LD}  -o $@ test.o  ${LIB}
 .c.o:
 	${CC} ${CFLAGS} -c -o $@ $<
 .cpp.o:
