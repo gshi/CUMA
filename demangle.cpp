@@ -14,12 +14,13 @@ demangle(char* symbol) {
   if(demangled != NULL){
     //demangled name should be shorter than mangled ones
     //but lets check
-    if(strlen(symbol) < strlen(demangled)){
-      printf("ERROR: mangled name(%s) is shorter than demangled name(%s)\n",
-	     symbol, demangled);
-      exit(1);
-    }
     int len =strlen(demangled);
+    if(strlen(symbol) < strlen(demangled)){
+      //printf("Warning: mangled name(%s) is shorter than demangled name(%s)\n",
+	     //symbol, demangled);
+      len = strlen(symbol);
+      //exit(1);
+    }
     strncpy(symbol, demangled, len);
     //the demangled function name automically added "()", lets remove them
     //by reduce 2 in length
